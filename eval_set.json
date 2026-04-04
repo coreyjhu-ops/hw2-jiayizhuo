@@ -1,0 +1,51 @@
+[
+  {
+    "id": 1,
+    "type": "normal",
+    "description": "Standard lecture with clear assignments and deadlines",
+    "input": "Alright everyone, so for next week, I need you to finish reading Chapter 5 of the textbook. Also, the group project proposal is due next Friday, April 11th. Each team should submit a one-page summary to Canvas. Oh, and remember, we have a guest speaker on Wednesday, so please come prepared with at least two questions about machine learning in healthcare. Sarah, you're leading the discussion section on Thursday — make sure you have your slides ready by Wednesday night.",
+    "expected_behavior": "Should extract 4 action items: (1) Read Chapter 5 — everyone — next week, (2) Submit group project proposal — each team — April 11, (3) Prepare 2 questions for guest speaker — everyone — Wednesday, (4) Prepare discussion slides — Sarah — Wednesday night. Each item should have a clear owner and deadline."
+  },
+  {
+    "id": 2,
+    "type": "normal",
+    "description": "Technical lecture with coding homework and lab instructions",
+    "input": "OK so today we covered REST APIs and authentication. For homework 3, you need to build a simple Flask app that implements JWT authentication. The code should be pushed to your GitHub repo by Sunday midnight. Make sure you include a README with setup instructions. Also, the midterm is moved to April 15th instead of April 10th — I'll update the syllabus. For the lab tomorrow, please install Postman before class and bring your laptop.",
+    "expected_behavior": "Should extract 4 action items: (1) Build Flask JWT auth app — everyone — Sunday midnight, (2) Include README with setup instructions — everyone — Sunday midnight, (3) Install Postman — everyone — before tomorrow's lab, (4) Bring laptop to lab — everyone — tomorrow. Should also note the midterm date change as informational context, not as an action item."
+  },
+  {
+    "id": 3,
+    "type": "edge_case",
+    "description": "Casual discussion with no clear action items — mostly opinions and tangents",
+    "input": "Yeah so I was thinking about this the other day, the whole debate around whether transformers will eventually replace all other architectures, you know? I mean, some people argue that CNNs are still better for certain vision tasks, and honestly I'm not sure I disagree. The thing about attention mechanisms is they're computationally expensive, but then again hardware keeps getting cheaper. Anyway, it was an interesting paper, I'll probably mention it again next time. What do you guys think?",
+    "expected_behavior": "Should return zero or minimal action items. The system should recognize this as informal discussion with no concrete assignments, deadlines, or responsibilities. If any output is produced, it should note that no actionable items were found. Should NOT hallucinate tasks like 'read the paper' since no specific paper was assigned."
+  },
+  {
+    "id": 4,
+    "type": "likely_to_fail",
+    "description": "Ambiguous references, vague deadlines, and unclear ownership",
+    "input": "So someone should probably follow up on that thing from last week. I think it was about the data pipeline? Anyway, just make sure it gets done sometime soon. Oh and the other thing — you know, the report — maybe try to get that wrapped up before the end of the month or whenever. Also tell the new guy he needs to set up his environment, I think Mike or maybe Kevin can help him with that.",
+    "expected_behavior": "Should flag ambiguity rather than hallucinate specifics. Ideal output marks tasks as having unclear ownership ('someone'), vague deadlines ('soon', 'end of the month or whenever'), and uncertain references ('that thing', 'the other thing', 'the report'). The system should either ask for clarification or mark items as needing human review. Should NOT fabricate specific deadlines or assign tasks to people not clearly responsible."
+  },
+  {
+    "id": 5,
+    "type": "edge_case",
+    "description": "Mixed languages — instructor switches between English and Chinese mid-lecture",
+    "input": "OK so for next class, please review the slides on neural networks. 然后下周二之前把作业交了，就是那个关于 backpropagation 的 coding assignment。每个人都要交。Also, office hours are cancelled this Thursday, but I'll be available on Slack if you have questions. 对了，期中考试的范围我会在周末发到 Canvas 上，大家注意查看。",
+    "expected_behavior": "Should handle bilingual input gracefully. Should extract: (1) Review neural network slides — everyone — before next class, (2) Submit backpropagation coding assignment — everyone — by next Tuesday, (3) Note office hours cancelled Thursday / use Slack instead, (4) Check Canvas on weekend for midterm scope. Output should be in a consistent language regardless of mixed input."
+  },
+  {
+    "id": 6,
+    "type": "normal",
+    "description": "Project meeting with multiple speakers and role-based assignments",
+    "input": "Team meeting notes: John said the frontend is almost done and he'll push the final version by tomorrow EOD. Lisa mentioned she's blocked on the database migration and needs access credentials from DevOps — can someone ping the DevOps channel about that? Meanwhile, the client demo is scheduled for next Monday at 2pm. We need the slide deck ready by Friday. Tom, you're handling the demo script. Lisa, once you're unblocked, prioritize the user authentication module. Everyone else, please do a code review on the PR that John will submit tomorrow.",
+    "expected_behavior": "Should extract role-specific tasks: (1) Push final frontend — John — tomorrow EOD, (2) Request DevOps credentials — unassigned/team — ASAP, (3) Prepare slide deck — team — by Friday, (4) Write demo script — Tom — by Friday, (5) Complete user auth module — Lisa — after unblocked, (6) Code review John's PR — everyone else — after tomorrow. Should correctly attribute tasks to named individuals."
+  },
+  {
+    "id": 7,
+    "type": "likely_to_fail",
+    "description": "Extremely long transcript with buried action items among lengthy explanations",
+    "input": "So let me spend some time explaining how gradient descent works because I know a lot of you were confused last time. Basically, you start with some random weights, and then you compute the loss function, which tells you how far off your predictions are from the actual values. Then you take the derivative of the loss with respect to each weight, and that gives you the gradient. The gradient points in the direction of steepest ascent, so you go in the opposite direction to minimize the loss. You keep doing this iteratively until the loss converges or you hit some stopping criterion. Now, the learning rate is crucial here — if it's too large, you'll overshoot the minimum; if it's too small, training takes forever. There are adaptive methods like Adam and RMSprop that adjust the learning rate automatically. We'll cover those next week. OK, one quick announcement buried in here: Problem Set 4 is due next Wednesday, April 9th. Submit it on Gradescope, not Canvas this time. Make sure your code is well-commented. Alright, back to the math. So when we talk about the chain rule in backpropagation...",
+    "expected_behavior": "Should correctly identify the single buried action item: Submit Problem Set 4 — everyone — Wednesday April 9th — on Gradescope (not Canvas) — well-commented code required. Should NOT generate action items from the educational content (e.g., should not create tasks like 'learn about gradient descent' or 'study Adam optimizer')."
+  }
+]
