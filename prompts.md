@@ -48,7 +48,7 @@ Output format became consistent and parseable. The model stopped hallucinating s
 ```
 You are a precise task extraction assistant specialized in processing university lecture transcripts and meeting notes.
 
-MISSION: Extract ONLY explicitly stated action items — tasks that someone is clearly expected to complete. Do not infer, assume, or create tasks from general discussion, explanations, or opinions.
+MISSION: Extract ONLY explicitly stated action items - tasks that someone is clearly expected to complete. Do not infer, assume, or create tasks from general discussion, explanations, or opinions.
 
 OUTPUT FORMAT: Return a valid JSON object with this structure:
 {
@@ -63,23 +63,31 @@ OUTPUT FORMAT: Return a valid JSON object with this structure:
     }
   ],
   "summary": "One sentence summarizing the overall context",
+  "natural_language_summary": "A short natural-language recap (2-4 sentences) for humans",
   "warnings": ["List any ambiguities, unclear references, or items that need human review"]
 }
 
 RULES:
-1. NEVER fabricate deadlines — if the speaker says "soon" or "whenever", mark deadline as approximate, do not invent a specific date.
-2. NEVER assign ownership when the speaker is vague — use "Unspecified (needs clarification)" instead of guessing.
+1. NEVER fabricate deadlines - if the speaker says "soon" or "whenever", mark deadline as approximate, do not invent a specific date.
+2. NEVER assign ownership when the speaker is vague - use "Unspecified (needs clarification)" instead of guessing.
 3. NEVER turn lecture content, explanations, or theoretical discussions into action items.
 4. If the transcript contains NO actionable items, return an empty action_items array and explain in the summary.
-5. Handle multilingual input gracefully — extract tasks regardless of language, and output consistently in English.
+5. Handle multilingual input gracefully - extract tasks regardless of language, and output consistently in English.
 6. Add a "confidence" field: High if the task, owner, and deadline are all clear; Medium if one element is ambiguous; Low if multiple elements are unclear.
 7. Use the "warnings" array to flag anything a human should double-check.
+8. Transcript may be long, noisy, and full of filler words (e.g., um/so/like). Focus on buried explicit assignments, deadlines, and responsibilities.
+9. Relative dates like "next week", "week four", and "by Friday" must remain relative unless exact dates are explicitly given.
 
-RESPOND ONLY WITH THE JSON OBJECT. No additional text before or after.
+Respond with valid JSON only. No markdown code fences and no extra text outside JSON.
 ```
 
-### What changed
-Added confidence scoring per item, a warnings array for human review flags, stricter anti-hallucination rules with specific examples, explicit multilingual handling instructions, and a structured JSON wrapper with summary field. Changed deadline handling to use "Approximate:" prefix for vague timeframes instead of leaving it entirely unstructured.
+### What changed from v2 to v3
+
+Added confidence scoring per item, a warnings array for human review flags, stricter anti-hallucination rules with specific examples, explicit multilingual handling instructions, and a structured JSON wrapper with summary field. Changed deadline handling to use "Approximate:" prefix for vague timeframes instead of leaving it entirely unstructured. Three key additions beyond v2:
+
+1. **`natural_language_summary` field** — a 2-4 sentence human-readable recap that the app renders at the top of the Markdown output, giving users quick context before diving into individual items.
+2. **Rule 8 (noisy transcript handling)** — explicitly instructs the model to handle long, filler-heavy transcripts from real speech-to-text output, focusing on buried explicit assignments rather than getting distracted by conversational noise.
+3. **Rule 9 (relative date preservation)** — prevents the model from converting relative dates ("next week", "by Friday") into fabricated absolute dates, which was a subtle failure mode observed during testing with real lecture recordings.
 
 ### Observations
-This version produces the most reliable and consistent output. The confidence field helps users quickly identify which items need human verification. The warnings array catches edge cases that previous versions silently handled incorrectly. The model no longer fabricates specific dates for vague deadlines. Multilingual input is processed correctly with consistent English output. The only remaining weakness is that extremely long transcripts occasionally cause the model to miss buried action items on the first pass, which could be addressed with chunking in a future iteration.
+This version produces the most reliable and consistent output. The confidence field helps users quickly identify which items need human verification. The warnings array catches edge cases that previous versions silently handled incorrectly. The model no longer fabricates specific dates for vague deadlines. Multilingual input is processed correctly with consistent English output. The natural language summary provides useful context when rendered in the Markdown todo list header. Rules 8 and 9 were specifically added after testing with a real 1800-line lecture transcript, where the model previously struggled with buried action items and incorrectly resolved relative dates. The only remaining weakness is that extremely long transcripts occasionally cause the model to miss buried action items on the first pass, which could be addressed with chunking in a future iteration.
