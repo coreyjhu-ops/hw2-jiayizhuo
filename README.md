@@ -1,6 +1,6 @@
 # LectureFlow — Lecture Transcript → Action Items
 
-**HW2 | EN.705.603 Information Systems and AI | Johns Hopkins University**
+**HW2 | Information Systems and AI | Johns Hopkins University**
 
 **Author:** Jiayi Zhuo
 
@@ -151,7 +151,6 @@ hw2-jiayizhuo/
 ├── prompts.md           # Prompt iteration log (3 versions)
 ├── eval_set.json        # Evaluation set (7 test cases)
 ├── report.md            # Final report
-├── video_script.md      # Video walkthrough script
 └── requirements.txt     # Python dependencies (google-genai==1.47.0)
 ```
 
