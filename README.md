@@ -1,4 +1,4 @@
-# LectureFlow — Lecture Transcript → Action Items
+# NoteFlow — Meeting & Lecture Transcript → Action Items
 
 **HW2 | Information Systems and AI | Johns Hopkins University**
 
@@ -6,21 +6,21 @@
 
 ## Overview
 
-LectureFlow is a GenAI-powered tool that extracts structured action items from lecture transcripts and meeting notes. It uses the Google Gemini API (gemini-2.5-flash) to identify tasks, owners, deadlines, priorities, and confidence scores from unstructured text — turning messy lecture recordings into clean, actionable to-do lists rendered as Markdown checkboxes.
+NoteFlow is a GenAI-powered tool that extracts structured action items from business meeting and lecture transcripts. It uses the Google Gemini API (gemini-2.5-flash) to identify tasks, owners, deadlines, priorities, and confidence scores from unstructured spoken text — turning messy recordings into clean, actionable to-do lists rendered as Markdown checkboxes.
 
-The tool supports three run modes: a local web UI for browser-based interaction, a command-line single-file mode, and a batch evaluation mode for systematic prompt testing. Output can be formatted as Markdown todo lists or structured JSON. Bilingual output (English / Chinese) is supported.
+The tool supports two modes: **Meeting mode** for business meetings, team standups, client calls, and research RA meetings (with enhanced sensitivity to business time shorthand like EOD, EOW, Q2, sprint end), and **Lecture mode** for academic transcripts (homework assignments, exam dates, in-class tasks). Three run modes are available: a local web UI for browser-based interaction, a command-line single-file mode, and a batch evaluation mode for systematic prompt testing.
 
 ## Business Workflow
 
-**Workflow:** Converting lecture transcripts into structured action items with `- [ ]` Markdown checkboxes.
+**Workflow:** Converting spoken meeting and lecture transcripts into structured, reviewable action item lists.
 
-**User:** University students and teaching assistants who attend lectures and need to track assignments, deadlines, and responsibilities.
+**Users:** Knowledge workers, project managers, research assistants, and students who attend meetings or lectures and need to track assignments, deadlines, and responsibilities without manually scanning long recordings.
 
-**Input:** Raw text transcript from a lecture recording (supports multilingual input including English-Chinese mixed text).
+**Input:** Raw text transcript from a meeting or lecture recording (supports multilingual input including English-Chinese mixed text).
 
-**Output:** Markdown todo list with checkboxes (default) or structured JSON, each action item annotated with task description, owner, deadline, priority, confidence score, and contextual notes.
+**Output:** Markdown todo list with checkboxes (`- [ ]`) and a timeline summary table, each action item annotated with task description, owner, deadline, priority, confidence score, and contextual notes. A time_references section captures all explicit time expressions from the transcript.
 
-**Why automate:** Students spend significant time manually reviewing lecture recordings to extract homework assignments and deadlines. This workflow reduces a 30-minute review session to seconds, while catching items that manual note-taking might miss.
+**Why automate:** Manually reviewing a 60-minute meeting recording to extract action items can take 20-30 minutes and still miss items buried in discussion. NoteFlow reduces this to seconds, produces a structured output ready to copy into any Markdown-compatible task manager (Notion, Obsidian, GitHub Issues), and flags ambiguities that require human review rather than silently guessing.
 
 ## Setup & Reproduction Guide
 
@@ -60,8 +60,8 @@ export GEMINI_API_KEY="your-api-key-here"
 
 Create a `.env` file in the project root directory:
 
-```bash
-echo 'GEMINI_API_KEY=your-api-key-here' > .env
+```
+GEMINI_API_KEY=your-api-key-here
 ```
 
 The app reads `GEMINI_API_KEY` or `GOOGLE_API_KEY` from environment variables first, then falls back to the `.env` file. The `.env` file supports `export` prefix, quoted values, and comment lines starting with `#`.
@@ -78,67 +78,50 @@ See the **Usage** section below for all three run modes.
 python app.py
 ```
 
-This launches a local web server at `http://127.0.0.1:8765` and opens it in your default browser. The web UI provides a split-layout interface where you can:
+This launches a local web server at `http://127.0.0.1:8765` and opens it in your default browser. The split-layout web UI allows you to:
 
-- Upload a `.txt` or `.md` transcript file
-- Paste transcript text directly
-- Provide a local file path
+- Select **Meeting** or **Lecture** mode via tab (different system prompt per mode)
+- Upload a `.txt` or `.md` transcript file, paste text, or provide a local path
 - Choose output language (English or Chinese)
-- Set a custom source name and output filename
-
-Generated Markdown is saved to `~/Downloads/` by default and previewed live in the browser via marked.js rendering.
-
-Use `--port` to change the default port:
-
-```bash
-python app.py --port 9000
-```
+- Preview Markdown output live in the browser
+- Save results automatically to `~/Downloads/`
 
 ### Mode 2: Command-Line Single File
 
 ```bash
-# Default output: Markdown todo list printed to terminal
+# Meeting mode (default), Markdown output
 python app.py --input transcript.txt
 
-# Output as JSON instead
+# Lecture mode
+python app.py --input transcript.txt --mode lecture
+
+# JSON output
 python app.py --input transcript.txt --format json
 
-# Save output to a file
+# Save to file
 python app.py --input transcript.txt --output todo.md
-python app.py --input transcript.txt --format json --output results.json
 ```
 
 ### Mode 3: Evaluation Mode
 
 ```bash
-# Run eval and print results to terminal
+# Run all 9 eval cases and print results
 python app.py --eval eval_set.json
 
-# Run eval and save results to file
-python app.py --eval eval_set.json --output eval_results.json
-```
-
-Evaluation mode processes all test cases in the JSON array, calls Gemini for each, and outputs structured JSON results comparing expected behavior against actual output. A summary is printed to the terminal for each case.
-
-### Additional Options
-
-```bash
-# Use a custom system prompt file
-python app.py --input transcript.txt --system-prompt custom_prompt.txt
-
-# Use a different Gemini model
-python app.py --input transcript.txt --model gemini-2.0-flash
+# Save results to file
+python app.py --eval eval_set.json --output eval_results.json --mode meeting
 ```
 
 ### CLI Arguments Reference
 
 | Argument | Description | Default |
 |---|---|---|
-| `--input FILE` | Path to transcript `.txt` file (single-file mode) | — |
-| `--eval FILE` | Path to `eval_set.json` (evaluation mode) | — |
+| `--input FILE` | Path to transcript `.txt` file | — |
+| `--eval FILE` | Path to `eval_set.json` | — |
+| `--mode {meeting,lecture}` | Prompt mode | `meeting` |
 | `--format {markdown,json}` | Output format for single-file mode | `markdown` |
 | `--output FILE` | Save output to file | — |
-| `--system-prompt FILE` | Custom system prompt file | Built-in v3 prompt |
+| `--system-prompt FILE` | Override system prompt with custom file | — |
 | `--model NAME` | Gemini model name | `gemini-2.5-flash` |
 | `--port PORT` | Web UI port | `8765` |
 
@@ -147,9 +130,9 @@ python app.py --input transcript.txt --model gemini-2.0-flash
 ```
 hw2-jiayizhuo/
 ├── README.md            # This file
-├── app.py               # Main application (1380+ lines, three run modes)
-├── prompts.md           # Prompt iteration log (3 versions)
-├── eval_set.json        # Evaluation set (7 test cases)
+├── app.py               # Main application (three run modes, two prompt modes)
+├── prompts.md           # Prompt iteration log (v1 → v2 → v3 Lecture + Meeting variants)
+├── eval_set.json        # Evaluation set (9 test cases: academic + business)
 ├── report.md            # Final report
 └── requirements.txt     # Python dependencies (google-genai==1.47.0)
 ```

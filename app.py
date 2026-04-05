@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LectureFlow - Extract action items from lecture transcripts with Gemini."""
+"""NoteFlow - Extract action items from meeting and lecture transcripts with Gemini."""
 
 from __future__ import annotations
 
@@ -20,12 +20,13 @@ from typing import Any
 
 DEFAULT_MODEL = "gemini-2.5-flash"
 DEFAULT_ENV_FILE = ".env"
-DEFAULT_MD_FILENAME = "lectureflow_todo.md"
+DEFAULT_MD_FILENAME = "noteflow_todo.md"
 DEFAULT_DOWNLOADS_DIRNAME = "Downloads"
 DEFAULT_WEB_HOST = "127.0.0.1"
 DEFAULT_WEB_PORT = 8765
+DEFAULT_MODE = "meeting"
 
-DEFAULT_SYSTEM_PROMPT = """You are a precise task extraction assistant specialized in processing university lecture transcripts and meeting notes.
+LECTURE_SYSTEM_PROMPT = """You are a precise task extraction assistant specialized in processing university lecture transcripts and meeting notes.
 
 MISSION: Extract ONLY explicitly stated action items - tasks that someone is clearly expected to complete. Do not infer, assume, or create tasks from general discussion, explanations, or opinions.
 
@@ -38,12 +39,13 @@ OUTPUT FORMAT: Return a valid JSON object with this structure:
       "deadline": "Exact date/time if stated, 'Approximate: [timeframe]' if vague, or 'Not specified'",
       "priority": "High / Medium / Low",
       "confidence": "High / Medium / Low",
-      "notes": "Any ambiguity, context, or caveats worth flagging"
+      "notes": "Only include if there is genuinely important context — omit for clear, unambiguous items"
     }
   ],
   "summary": "One sentence summarizing the overall context",
   "natural_language_summary": "A short natural-language recap (2-4 sentences) for humans",
-  "warnings": ["List any ambiguities, unclear references, or items that need human review"]
+  "time_references": ["ALL explicit time expressions mentioned, e.g. 'next Friday', 'Week 4', 'by midnight', 'exam on April 15th'"],
+  "warnings": ["Only genuine ambiguities or blockers that need human review — return empty array if none"]
 }
 
 RULES:
@@ -53,9 +55,47 @@ RULES:
 4. If the transcript contains NO actionable items, return an empty action_items array and explain in the summary.
 5. Handle multilingual input gracefully - extract tasks regardless of language, and output consistently in English.
 6. Add a "confidence" field: High if the task, owner, and deadline are all clear; Medium if one element is ambiguous; Low if multiple elements are unclear.
-7. Use the "warnings" array to flag anything a human should double-check.
+7. OMIT the "notes" field content for clear, unambiguous items — only add notes when there is a genuine dependency, blocker, or ambiguity.
 8. Transcript may be long, noisy, and full of filler words (e.g., um/so/like). Focus on buried explicit assignments, deadlines, and responsibilities.
 9. Relative dates like "next week", "week four", and "by Friday" must remain relative unless exact dates are explicitly given.
+10. The time_references array must capture ALL time expressions in the transcript, even those not tied to a specific action item.
+
+Respond with valid JSON only. No markdown code fences and no extra text outside JSON.
+"""
+
+MEETING_SYSTEM_PROMPT = """You are a precise action item extraction assistant for business meetings, team standups, client calls, and research meetings.
+
+MISSION: Extract ONLY explicitly stated action items — tasks someone is clearly expected to complete. Do not infer tasks from decisions already made, informational updates, or general discussion.
+
+OUTPUT FORMAT: Return a valid JSON object with this structure:
+{
+  "action_items": [
+    {
+      "task": "Clear one-sentence description of what needs to be done",
+      "owner": "Person name, role/title, or 'Unspecified (needs clarification)'",
+      "deadline": "Business shorthand kept as-is (e.g. 'EOD Friday', 'end of sprint', 'by Q2'), 'Approximate: [timeframe]' if vague, or 'Not specified'",
+      "priority": "High / Medium / Low",
+      "confidence": "High / Medium / Low",
+      "notes": "Only if a genuine blocker, dependency, or ambiguity exists — omit for clear items"
+    }
+  ],
+  "summary": "One sentence summarizing the meeting topic and key decisions",
+  "natural_language_summary": "A short natural-language recap (2-4 sentences) written for stakeholders who did not attend",
+  "time_references": ["ALL explicit time expressions from the meeting, e.g. 'EOD Friday', '3pm Monday', 'end of Q2', 'next sprint', 'by launch'"],
+  "warnings": ["Only genuine ambiguities or blockers requiring human review — return empty array if none"]
+}
+
+RULES:
+1. NEVER fabricate deadlines — keep business shorthand exactly as spoken (EOD, EOW, EOM, Q1/Q2/Q3/Q4, sprint end, etc.). Do not convert to calendar dates unless exact dates were stated.
+2. NEVER assign ownership when the speaker is vague — use "Unspecified (needs clarification)".
+3. NEVER turn decisions, status updates, or informational context into action items.
+4. If the transcript contains NO actionable items, return an empty action_items array and explain in summary.
+5. For research meetings: treat paper submission deadlines, experiment milestones, data collection tasks, and advisor-directed tasks as high-priority action items.
+6. Confidence: High = task, owner, AND deadline all clear; Medium = one element ambiguous; Low = multiple elements unclear.
+7. OMIT the "notes" field content for clear, unambiguous items — add notes only when context is genuinely needed.
+8. The time_references array must capture ALL time expressions in the meeting, including those not tied to a specific action item. This creates a complete timeline overview.
+9. Noisy transcripts with filler words (um/so/like/you know) are common in real meetings — focus on substance, ignore filler.
+10. If multiple people are assigned the same task, list them all in the owner field separated by commas.
 
 Respond with valid JSON only. No markdown code fences and no extra text outside JSON.
 """
@@ -64,7 +104,7 @@ Respond with valid JSON only. No markdown code fences and no extra text outside 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="LectureFlow - Extract action items from transcripts using Gemini"
+        description="NoteFlow - Extract action items from meeting and lecture transcripts using Gemini"
     )
 
     mode_group = parser.add_mutually_exclusive_group()
@@ -101,6 +141,13 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_WEB_PORT,
         help=f"Web mode port when running without --input/--eval (default: {DEFAULT_WEB_PORT})",
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default=DEFAULT_MODE,
+        choices=["meeting", "lecture"],
+        help="Prompt mode for CLI: 'meeting' for business/research meetings, 'lecture' for academic transcripts (default: meeting)",
     )
     return parser.parse_args()
 
@@ -139,10 +186,15 @@ def create_genai_client(api_key: str) -> tuple[Any, Any]:
     return genai_sdk.Client(api_key=api_key), genai_sdk
 
 
-def load_system_prompt(prompt_path: str | None) -> str:
-    """Load system prompt from custom file, or return default prompt."""
+def get_prompt_for_mode(mode: str) -> str:
+    """Return the default system prompt for the given mode."""
+    return LECTURE_SYSTEM_PROMPT if str(mode).strip().lower() == "lecture" else MEETING_SYSTEM_PROMPT
+
+
+def load_system_prompt(prompt_path: str | None, mode: str = DEFAULT_MODE) -> str:
+    """Load system prompt from custom file, or return mode-default prompt."""
     if not prompt_path:
-        return DEFAULT_SYSTEM_PROMPT
+        return get_prompt_for_mode(mode)
 
     prompt_file = Path(prompt_path).expanduser()
     if not prompt_file.exists() or not prompt_file.is_file():
@@ -219,10 +271,16 @@ def normalize_result(data: Any, raw_output: str | None = None) -> dict[str, Any]
     if isinstance(warnings_raw, list):
         warnings = [str(w).strip() for w in warnings_raw if str(w).strip()]
 
+    time_refs_raw = obj.get("time_references")
+    time_refs: list[str] = []
+    if isinstance(time_refs_raw, list):
+        time_refs = [str(t).strip() for t in time_refs_raw if str(t).strip()]
+
     result: dict[str, Any] = {
         "action_items": action_items,
         "summary": str(obj.get("summary") or "").strip(),
         "natural_language_summary": str(obj.get("natural_language_summary") or "").strip(),
+        "time_references": time_refs,
         "warnings": warnings,
     }
 
@@ -372,7 +430,7 @@ def render_markdown_todo(
     summary = (result.get("natural_language_summary") or result.get("summary") or "").strip()
 
     if language == "chinese":
-        title = "# LectureFlow - 行动事项"
+        title = "# NoteFlow - 行动事项"
         source_label = "来源"
         extracted_label = "提取日期"
         summary_label = "摘要"
@@ -388,7 +446,7 @@ def render_markdown_todo(
         elif source == "File Input":
             source = "文件输入"
     else:
-        title = "# LectureFlow - Action Items"
+        title = "# NoteFlow - Action Items"
         source_label = "Source"
         extracted_label = "Extracted"
         summary_label = "Summary"
@@ -434,6 +492,46 @@ def render_markdown_todo(
             lines.append(f"- {warning}")
     else:
         lines.append(none_label)
+
+    # Timeline summary table
+    table_items = result.get("action_items", [])
+    if isinstance(table_items, list) and table_items:
+        if language == "chinese":
+            table_label = "## 时间轴总览"
+            col_num = "#"
+            col_task = "任务"
+            col_owner = "负责人"
+            col_deadline = "截止时间"
+            col_priority = "优先级"
+        else:
+            table_label = "## Timeline"
+            col_num = "#"
+            col_task = "Task"
+            col_owner = "Owner"
+            col_deadline = "Deadline"
+            col_priority = "Priority"
+
+        lines.extend(["", "---", "", table_label, ""])
+        lines.append(f"| {col_num} | {col_task} | {col_owner} | {col_deadline} | {col_priority} |")
+        lines.append("|---|---|---|---|---|")
+        for idx, raw_item in enumerate(table_items, 1):
+            item = normalize_action_item(raw_item)
+            task_cell = item["task"]
+            if len(task_cell) > 62:
+                task_cell = task_cell[:60] + "…"
+            deadline_cell = item["deadline"] if item["deadline"] not in ("Not specified", "未说明") else "—"
+            lines.append(f"| {idx} | {task_cell} | {item['owner']} | {deadline_cell} | {item['priority']} |")
+
+    # Time references detected
+    time_refs = result.get("time_references", [])
+    if isinstance(time_refs, list) and time_refs:
+        if language == "chinese":
+            tr_label = "\n### 时间节点提及"
+        else:
+            tr_label = "\n### Time References Detected"
+        lines.append(tr_label)
+        for ref in time_refs:
+            lines.append(f"- {ref}")
 
     raw_output = str(result.get("raw_output") or "").strip()
     if raw_output and str(result.get("summary", "")).startswith("Failed to parse"):
@@ -518,7 +616,7 @@ def render_web_page(
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>LectureFlow Web UI</title>
+  <title>NoteFlow Web UI</title>
   <style>
     :root {{
       --bg: #f7f7ef;
@@ -625,7 +723,7 @@ def render_web_page(
 <body>
   <div class="wrap">
     <div class="card">
-      <h1>LectureFlow Web</h1>
+      <h1>NoteFlow Web</h1>
       <p>Upload transcript file or paste transcript text, then generate action-item Markdown.</p>
       <form method="post" action="/extract" enctype="multipart/form-data">
         <label for="transcript_file">Upload Transcript File (.txt/.md)</label>
@@ -678,7 +776,7 @@ def render_web_page_modern(
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>LectureFlow Web UI</title>
+  <title>NoteFlow Web UI</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     :root {{
@@ -872,8 +970,8 @@ def render_web_page_modern(
   <div class="wrap">
     <div class="layout">
       <section class="panel">
-        <h1>LectureFlow Web</h1>
-        <p>Upload transcript or paste text, then generate Todo Markdown.</p>
+        <h1>NoteFlow</h1>
+        <p>Extract action items from meeting or lecture transcripts. Upload a file or paste text.</p>
         <form id="extract_form" method="post" action="/extract" enctype="multipart/form-data">
           <label for="transcript_file">Upload Transcript File (.txt/.md)</label>
           <input id="transcript_file" name="transcript_file" type="file" />
@@ -884,6 +982,14 @@ def render_web_page_modern(
 
           <label for="transcript_path">Optional: Local File Path</label>
           <input id="transcript_path" name="transcript_path" type="text" placeholder="/path/to/transcript.txt" />
+
+          <label>Mode</label>
+          <div class="lang-tabs" role="tablist" aria-label="Mode">
+            <input id="mode_meeting" type="radio" name="mode" value="meeting" checked />
+            <label for="mode_meeting">Meeting</label>
+            <input id="mode_lecture" type="radio" name="mode" value="lecture" />
+            <label for="mode_lecture">Lecture</label>
+          </div>
 
           <label>Output Language</label>
           <div class="lang-tabs" role="tablist" aria-label="Output Language">
@@ -1016,14 +1122,18 @@ def render_web_page_modern(
 def make_web_handler(
     client: Any,
     genai_sdk: Any,
-    system_prompt: str,
+    custom_prompt: str | None,
     model_name: str,
     save_dir: Path,
 ) -> type[BaseHTTPRequestHandler]:
-    """Create a request handler class bound to runtime dependencies."""
+    """Create a request handler class bound to runtime dependencies.
 
-    class LectureFlowWebHandler(BaseHTTPRequestHandler):
-        """HTTP handler for LectureFlow web mode."""
+    custom_prompt: a pre-loaded prompt string if --system-prompt was passed on CLI, else None.
+    When None, the handler picks the prompt based on the per-request 'mode' form field.
+    """
+
+    class NoteFlowWebHandler(BaseHTTPRequestHandler):
+        """HTTP handler for NoteFlow web mode."""
 
         def _send_html(self, page: str, status_code: int = 200) -> None:
             encoded = page.encode("utf-8")
@@ -1112,6 +1222,8 @@ def make_web_handler(
                 output_language = normalize_output_language(
                     self._get_field_text(form, "output_language")
                 )
+                mode = self._get_field_text(form, "mode") or DEFAULT_MODE
+                req_prompt = custom_prompt if custom_prompt is not None else get_prompt_for_mode(mode)
 
                 output_name = self._get_field_text(form, "output_name") or DEFAULT_MD_FILENAME
                 output_name = Path(output_name).name or DEFAULT_MD_FILENAME
@@ -1121,7 +1233,7 @@ def make_web_handler(
                     client,
                     genai_sdk,
                     transcript,
-                    system_prompt,
+                    req_prompt,
                     model_name,
                     output_language=output_language,
                 )
@@ -1145,25 +1257,28 @@ def make_web_handler(
             """Keep server logs concise."""
             print(f"[web] {self.address_string()} - {fmt % args}")
 
-    return LectureFlowWebHandler
+    return NoteFlowWebHandler
 
 
 def run_web_mode(
     client: Any,
     genai_sdk: Any,
-    system_prompt: str,
+    custom_prompt: str | None,
     model_name: str,
     port: int,
 ) -> None:
-    """Run local web server for transcript interaction."""
+    """Run local web server for transcript interaction.
+
+    custom_prompt: pre-loaded prompt string if --system-prompt was given on CLI, else None.
+    """
     host = DEFAULT_WEB_HOST
     chosen_port = pick_available_port(host, port)
     save_dir = resolve_default_save_dir()
-    handler_cls = make_web_handler(client, genai_sdk, system_prompt, model_name, save_dir)
+    handler_cls = make_web_handler(client, genai_sdk, custom_prompt, model_name, save_dir)
     server = ThreadingHTTPServer((host, chosen_port), handler_cls)
     url = f"http://{host}:{chosen_port}"
 
-    print("\nLectureFlow Web UI is running.")
+    print("\nNoteFlow Web UI is running.")
     print(f"Open in browser: {url}")
     print(f"Generated markdown will be saved to: {save_dir / DEFAULT_MD_FILENAME}")
     print("Press Ctrl+C to stop.\n")
@@ -1284,8 +1399,8 @@ def run_interactive_mode(
     default_output_path: str | None = None,
 ) -> None:
     """Run interactive transcript processing mode."""
-    print("\n================ LectureFlow Interactive Mode ================")
-    print("你可以上传课堂录音转写文件，或直接粘贴文本。")
+    print("\n================ NoteFlow Interactive Mode ================")
+    print("你可以上传会议或课堂录音转写文件，或直接粘贴文本。")
     print("系统会自动提取 Action Items，并输出 Markdown Todo List。\n")
 
     choice = ask_input_mode()
@@ -1327,7 +1442,7 @@ def run_single_file_mode(
     else:
         # Helpful hint for markdown default path when user wants a file copy.
         if args.format == "markdown":
-            print(f"\nHint: use --output lectureflow_todo{ext_hint} to save this result.")
+            print(f"\nHint: use --output noteflow_todo{ext_hint} to save this result.")
 
 
 def main() -> None:
@@ -1340,11 +1455,14 @@ def main() -> None:
         print("Get a key at: https://aistudio.google.com/apikey")
         sys.exit(1)
 
-    try:
-        system_prompt = load_system_prompt(args.system_prompt)
-    except Exception as exc:  # pylint: disable=broad-except
-        print(f"Error loading system prompt: {exc}")
-        sys.exit(1)
+    # Load custom prompt file if --system-prompt was given; None means use mode default.
+    custom_prompt: str | None = None
+    if args.system_prompt:
+        try:
+            custom_prompt = load_system_prompt(args.system_prompt)
+        except Exception as exc:  # pylint: disable=broad-except
+            print(f"Error loading system prompt: {exc}")
+            sys.exit(1)
 
     try:
         client, genai_sdk = create_genai_client(api_key)
@@ -1354,6 +1472,7 @@ def main() -> None:
 
     try:
         if args.eval:
+            system_prompt = custom_prompt or get_prompt_for_mode(args.mode)
             results = run_eval_mode(args, client, genai_sdk, system_prompt)
             rendered = json.dumps(results, indent=2, ensure_ascii=False) + "\n"
             if args.output:
@@ -1362,12 +1481,13 @@ def main() -> None:
             else:
                 print(rendered, end="")
         elif args.input:
+            system_prompt = custom_prompt or get_prompt_for_mode(args.mode)
             run_single_file_mode(args, client, genai_sdk, system_prompt)
         else:
             run_web_mode(
                 client=client,
                 genai_sdk=genai_sdk,
-                system_prompt=system_prompt,
+                custom_prompt=custom_prompt,
                 model_name=args.model,
                 port=args.port,
             )
