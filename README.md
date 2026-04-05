@@ -139,4 +139,4 @@ hw2-jiayizhuo/
 
 ## Video Walkthrough
 
-[Video Link — TODO: Add after recording]
+[Video Link — https://youtu.be/85sR_97pb18]
